@@ -1,0 +1,3 @@
+# Example - uncomment the following line(s) to ignore safety check with ID 39461 and 12345
+# -i 39462
+# -i 12345

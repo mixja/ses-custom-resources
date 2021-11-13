@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 
+- AWS::Serverless-2016-10-31
+Description: DevFactory Ses Custom Resources
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: ses-custom-resources
+    Description: DevFactory Ses Custom Resources
+    Author: DevFactory
+    SpdxLicenseId: MIT
+    LicenseUrl: LICENSE.txt
+    ReadmeUrl: README.md
+    Labels: ['ses-custom-resources','cloudformation']
+    HomePageUrl: https://github.com/trilogy-group/ses-custom-resources
+    SemanticVersion: 0.1.0
+    SourceCodeUrl: https://github.com/trilogy-group/ses-custom-resources
+
+# Stack inputs
+Parameters:
+  MemorySize:
+    Type: Number
+    Description: Function Memory
+    Default: 1769
+    MinValue: 128
+    MaxValue: 3008
+  Runtime:
+    Type: String
+    Description: Lambda runtime
+    Default: python3.9
+  Timeout:
+    Type: Number
+    Description: Function Timeout
+    Default: 900
+  LogRetention:
+    Type: Number
+    Description: Log Retention
+    Default: 30
+    AllowedValues: [ 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653 ]
+
+# Global settings
+Globals:
+  Function:
+    AutoPublishAlias: latest
+    MemorySize: !Ref MemorySize
+    Runtime: !Ref Runtime
+    Timeout: !Ref Timeout
+    Tracing: Active
+    Layers:
+      - !Ref Dependencies
+
+Resources:
+  # Dependencies Layer
+  Dependencies:
+    Type: AWS::Serverless::LayerVersion
+    Metadata:
+      BuildMethod: !Ref Runtime
+    Properties:
+      LayerName: !Sub ${AWS::StackName}-dependencies
+      Description: !Sub ${AWS::StackName} dependencies
+      ContentUri: build/dependencies
+      CompatibleRuntimes:
+        - !Ref Runtime
+      LicenseInfo: MIT
+      RetentionPolicy: Delete
+  # Serverless Function
+  SampleFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: SampleFunctionLogGroup
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-sample-app
+      Description: !Sub ${AWS::StackName} Ses Custom Resources
+      Handler: app.handler
+      CodeUri: src/
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - Version: '2012-10-17'
+          Statement:
+            - Sid: ExamplePermissions
+              Effect: Allow
+              Action:
+              - s3:GetObject
+              Resource: '*'
+  SampleFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-sample-app
+      RetentionInDays: !Ref LogRetention
+
+Outputs:
+  SampleFunctionAlias:
+    Description: Sample Function Alias
+    Value: !Sub ${SampleFunction.Alias}

@@ -1,0 +1,12 @@
+---
+# Region: us-east-1
+# Template: path-to-template.yaml
+# Parameters:
+#   SomeInputParameter: some value
+Tags:
+  Owner: DevFactory
+  Product: ses-custom-resources
+  Severity: High
+  Environment: staging
+  Contact: justin.menga@devfactory.com
+  DeletionPolicy: Retain
