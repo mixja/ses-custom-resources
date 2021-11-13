@@ -31,11 +31,11 @@ You will also need to set up your AWS profiles according to the following naming
 
 `<aws-profile-prefix>-<environment>`
 
-For example, if you configure your AWS profile prefix as `devfactory`, you might set up the following profiles:
+For example, if you configure your AWS profile prefix as `learning`, you might set up the following profiles:
 
-- devfactory-sandbox
-- devfactory-staging
-- devfactory-production
+- learning-sandbox
+- learning-staging
+- learning-production
 
 Note that the `environment` value is used both for deployment and defining environment configurations:
 
@@ -53,7 +53,7 @@ All development occurs on a feature branch.
 After checking out a new branch, you should first deploy using the `make` command, which will build, test, deploy and run integration tests for the sample application:
 
 ```
-$ export AWS_PROFILE=devfactory-sandbox
+$ export AWS_PROFILE=learning-sandbox
 $ make
 ...
 ...

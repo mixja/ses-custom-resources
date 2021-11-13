@@ -4,9 +4,9 @@
 # Parameters:
 #   SomeInputParameter: some value
 Tags:
-  Owner: DevFactory
+  Owner: Learning Technology
   Product: ses-custom-resources
   Severity: High
   Environment: staging
-  Contact: justin.menga@devfactory.com
+  Contact: justin.menga@learning.com
   DeletionPolicy: Retain

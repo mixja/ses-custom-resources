@@ -1,19 +1,19 @@
 # Project settings
 -include .env
 PROJECT_NAME = ses-custom-resources
-AWS_PROFILE_PREFIX ?= devfactory
-DEV_ARTIFACTS_BUCKET ?=devfactory-sandbox-us-east-1-code-artifacts
-ARTIFACTS_BUCKET ?= devfactory-sandbox-us-east-1-code-artifacts
-ARTIFACTS_PROFILE ?= devfactory-sandbox
+AWS_PROFILE_PREFIX ?= learning
+DEV_ARTIFACTS_BUCKET ?=learning-sandbox-us-west-2-code-artifacts
+ARTIFACTS_BUCKET ?= learning-sandbox-us-west-2-code-artifacts
+ARTIFACTS_PROFILE ?= learning-sandbox
 
-all: export AWS_PROFILE = devfactory-sandbox
+all: export AWS_PROFILE = learning-sandbox
 all: build test deploy integration
 
 install:
 	$(INFO) "Installing dev virtual environment..."
 	pipenv sync --dev
 	pipenv clean
-	safety check
+# safety check
 
 build: clean install
 	$(INFO) "Creating production build..."
@@ -81,7 +81,7 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 
 	find . -type d -name .pytest_cache -exec rm -rf {} +
 
-destroy: export AWS_PROFILE = devfactory-sandbox
+destroy: export AWS_PROFILE = learning-sandbox
 destroy:
 	$(INFO) "Deleting stack $(STACK_NAME) and associated artifacts..."
 	sam delete --stack-name $(STACK_NAME) --no-prompts --region $$(aws configure get region)
@@ -102,7 +102,7 @@ STACK_NAME ?= $(if $(filter master main,$(BRANCH_NAME)),$(PROJECT_NAME),$(PROJEC
 MAP_TO_KV := jq -r 'select(.?)|to_entries[]|(.key|tostring)+"="+(.value//""|tostring)' | tr '\n' ' '
 
 # Make settings
-.PHONY: install build deploy test watch integration update clean destroy kernel jupyter
+.PHONY: *
 .ONESHELL:
 .SILENT:
 SHELL=pipenv
