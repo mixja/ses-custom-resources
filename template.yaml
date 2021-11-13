@@ -1,36 +1,39 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: 
 - AWS::Serverless-2016-10-31
-Description: DevFactory Ses Custom Resources
+Description: Learning Technology Ses Custom Resources
 Metadata:
   AWS::ServerlessRepo::Application:
     Name: ses-custom-resources
-    Description: DevFactory Ses Custom Resources
-    Author: DevFactory
+    Description: AWS SES Custom Resource Functions
+    Author: Justin Menga
     SpdxLicenseId: MIT
     LicenseUrl: LICENSE.txt
     ReadmeUrl: README.md
     Labels: ['ses-custom-resources','cloudformation']
-    HomePageUrl: https://github.com/trilogy-group/ses-custom-resources
-    SemanticVersion: 0.1.0
-    SourceCodeUrl: https://github.com/trilogy-group/ses-custom-resources
+    HomePageUrl: https://github.com/mixja/ses-custom-resources
+    SemanticVersion: 1.0.0
+    SourceCodeUrl: https://github.com/mixja/ses-custom-resources
 
 # Stack inputs
 Parameters:
   MemorySize:
     Type: Number
     Description: Function Memory
-    Default: 1769
+    Default: 512
     MinValue: 128
     MaxValue: 3008
-  Runtime:
-    Type: String
-    Description: Lambda runtime
-    Default: python3.9
   Timeout:
     Type: Number
     Description: Function Timeout
     Default: 900
+  Tracing:
+    Type: String
+    Description: X-Ray Tracing Configuration
+    Default: Active
+    AllowedValues:
+      - Active
+      - PassThrough
   LogRetention:
     Type: Number
     Description: Log Retention
@@ -42,9 +45,9 @@ Globals:
   Function:
     AutoPublishAlias: latest
     MemorySize: !Ref MemorySize
-    Runtime: !Ref Runtime
+    Runtime: python3.9
     Timeout: !Ref Timeout
-    Tracing: Active
+    Tracing: !Ref Tracing
     Layers:
       - !Ref Dependencies
 
@@ -53,41 +56,77 @@ Resources:
   Dependencies:
     Type: AWS::Serverless::LayerVersion
     Metadata:
-      BuildMethod: !Ref Runtime
+      BuildMethod: python3.9
     Properties:
       LayerName: !Sub ${AWS::StackName}-dependencies
       Description: !Sub ${AWS::StackName} dependencies
       ContentUri: build/dependencies
       CompatibleRuntimes:
-        - !Ref Runtime
+        - python3.9
       LicenseInfo: MIT
       RetentionPolicy: Delete
-  # Serverless Function
-  SampleFunction:
+  # Active rule provisioner function
+  SesActiveRuleSetProvisioner:
     Type: AWS::Serverless::Function
-    DependsOn: SampleFunctionLogGroup
+    DependsOn: SesActiveRuleSetProvisionerLogGroup
     Properties:
-      FunctionName: !Sub ${AWS::StackName}-sample-app
-      Description: !Sub ${AWS::StackName} Ses Custom Resources
-      Handler: app.handler
+      FunctionName: !Sub ${AWS::StackName}-ses-active-rule-set
+      Description: !Sub ${AWS::StackName} SES Active Rule Set Provisioner
+      Handler: app.ses.ruleset_handler
       CodeUri: src/
       Policies:
         - AWSXrayWriteOnlyAccess
         - Version: '2012-10-17'
           Statement:
-            - Sid: ExamplePermissions
+            - Sid: SES
               Effect: Allow
               Action:
-              - s3:GetObject
+              - ses:SetActiveReceiptRuleSet
               Resource: '*'
-  SampleFunctionLogGroup:
+  SesActiveRuleSetProvisionerLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Delete
     Properties:
-      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-sample-app
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-ses-active-rule-set
+      RetentionInDays: !Ref LogRetention
+  # Identity provisioner function
+  SesIdentityProvisioner:
+    Type: AWS::Serverless::Function
+    DependsOn: SesIdentityProvisionerLogGroup
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-ses-identity
+      Description: !Sub ${AWS::StackName} SES Identity Provisioner
+      Handler: app.ses.identity_handler
+      CodeUri: src/
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - Version: '2012-10-17'
+          Statement:
+            - Sid: SES
+              Effect: Allow
+              Action:
+              - ses:CreateEmailIdentity
+              - ses:CreateEmailIdentityPolicy
+              - ses:DeleteEmailIdentity
+              - ses:DeleteEmailIdentityPolicy
+              - ses:GetEmailIdentity
+              - ses:GetEmailIdentityPolicies
+              - ses:GetIdentityVerificationAttributes
+              - ses:ListEmailIdentities
+              - ses:UpdateEmailIdentityPolicy
+              - ses:VerifyEmailIdentity
+              Resource: '*'
+  SesIdentityProvisionerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-ses-identity
       RetentionInDays: !Ref LogRetention
 
 Outputs:
-  SampleFunctionAlias:
-    Description: Sample Function Alias
-    Value: !Sub ${SampleFunction.Alias}
+  SesIdentityProvisioner:
+    Description: SES Identity Provisioner Alias
+    Value: !Sub ${SesIdentityProvisioner.Alias}
+  SesActiveRuleSetProvisioner:
+    Description: SES Active Ruleset Provisioner Alias
+    Value: !Sub ${SesActiveRuleSetProvisioner.Alias}

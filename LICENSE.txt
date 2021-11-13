@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2021 - present DevFactory
+Copyright (c) 2021 - present Learning Technology
 
 All rights reserved.
 
