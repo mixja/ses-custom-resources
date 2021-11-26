@@ -22,7 +22,7 @@ jsonify = lambda data: json.dumps(data, default=str)
 
 # Handler
 identity_handler = Handler()
-ruleset_handler = Handler()
+rule_set_handler = Handler()
 
 # SES client
 ses = boto3.client('ses')
@@ -130,13 +130,13 @@ def identity_handler_delete(event, context):
         return event
     
 
-@ruleset_handler.create
-@ruleset_handler.update
-def ruleset_handler_create(event, context):
+@rule_set_handler.create
+@rule_set_handler.update
+def rule_set_handler_create(event, context):
     try:
         log.info(f"Received event {jsonify(event)}")
-        ruleset = event['ResourceProperties']['RuleSetName']
-        ses.set_active_receipt_ruleset(RuleSetName=ruleset)
+        rule_set = event['ResourceProperties']['RuleSetName']
+        ses.set_active_receipt_rule_set(RuleSetName=rule_set)
     except Exception as e:
         log.exception('An exception occurred')
         event['Status'] = 'FAILED'
@@ -145,12 +145,12 @@ def ruleset_handler_create(event, context):
         return event
 
 
-@ruleset_handler.delete
-def ruleset_handler_delete(event, context):
+@rule_set_handler.delete
+def rule_set_handler_delete(event, context):
     try:
         log.info(f"Received event {jsonify(event)}")
-        ruleset = event['ResourceProperties']['RuleSetName']
-        ses.set_active_receipt_ruleset()
+        rule_set = event['ResourceProperties']['RuleSetName']
+        ses.set_active_receipt_rule_set()
     except Exception as e:
         log.exception('An exception occurred')
         event['Status'] = 'FAILED'

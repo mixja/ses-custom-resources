@@ -1,22 +1,34 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Transform: 
+Transform:
 - AWS::Serverless-2016-10-31
-Description: Learning Technology Ses Custom Resources
+Description: Learning Technology SES Cognito Verification
 Metadata:
   AWS::ServerlessRepo::Application:
     Name: ses-custom-resources
-    Description: AWS SES Custom Resource Functions
+    Description: AWS SES Cognito Verification
     Author: Justin Menga
     SpdxLicenseId: MIT
     LicenseUrl: LICENSE.txt
     ReadmeUrl: README.md
-    Labels: ['ses-custom-resources','cloudformation']
-    HomePageUrl: https://github.com/mixja/ses-custom-resources
+    Labels:
+    - ses-cognito-verification
+    - cloudformation
+    HomePageUrl: https://github.com/learning-technology/ses-cognito-verification
     SemanticVersion: 1.0.0
-    SourceCodeUrl: https://github.com/mixja/ses-custom-resources
-
-# Stack inputs
+    SourceCodeUrl: https://github.com/learning-technology/ses-cognito-verification
 Parameters:
+  ForwardingEmail:
+    Type: String
+    Description: Email address to forward a copy of verification requests to
+  FromEmail:
+    Type: String
+    Description: Sending email identity for Cognito emails
+  DomainName:
+    Type: String
+    Description: Sending domain identity for Cognito emails
+  Prefix:
+    Type: String
+    Description: Naming prefix for resources
   MemorySize:
     Type: Number
     Description: Function Memory
@@ -32,15 +44,30 @@ Parameters:
     Description: X-Ray Tracing Configuration
     Default: Active
     AllowedValues:
-      - Active
-      - PassThrough
+    - Active
+    - PassThrough
   LogRetention:
     Type: Number
     Description: Log Retention
     Default: 30
-    AllowedValues: [ 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653 ]
-
-# Global settings
+    AllowedValues:
+    - 1
+    - 3
+    - 5
+    - 7
+    - 14
+    - 30
+    - 60
+    - 90
+    - 120
+    - 150
+    - 180
+    - 365
+    - 400
+    - 545
+    - 731
+    - 1827
+    - 3653
 Globals:
   Function:
     AutoPublishAlias: latest
@@ -50,79 +77,271 @@ Globals:
     Tracing: !Ref Tracing
     Layers:
       - !Ref Dependencies
-
 Resources:
-  # Dependencies Layer
   Dependencies:
     Type: AWS::Serverless::LayerVersion
     Metadata:
       BuildMethod: python3.9
     Properties:
-      LayerName: !Sub ${AWS::StackName}-dependencies
-      Description: !Sub ${AWS::StackName} dependencies
+      LayerName: !Sub ${Prefix}-ses-dependencies
+      Description: !Sub ${Prefix} SES dependencies
       ContentUri: build/dependencies
       CompatibleRuntimes:
-        - python3.9
+      - python3.9
       LicenseInfo: MIT
       RetentionPolicy: Delete
-  # Active rule provisioner function
+  # Cognito receiving ruleset
+  CognitoReceiptRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    Properties:
+      RuleSetName: !Sub ${Prefix}-cognito
+  CognitoReceiptRule:
+    Type: AWS::SES::ReceiptRule
+    DependsOn: CognitoVerificationTopicPolicy
+    Properties:
+      RuleSetName: !Ref CognitoReceiptRuleSet
+      Rule:
+        Name: cognito-verification
+        Enabled: true
+        Recipients:
+          - !Ref FromEmail
+        Actions:
+          - SNSAction:
+              TopicArn: !Ref CognitoVerificationTopic
+  # Cognito forwarding rule
+  CognitoForwardingRule:
+    Type: AWS::SES::ReceiptRule
+    DependsOn: CognitoForwardingTopicPolicy
+    Properties:
+      After: !Ref CognitoReceiptRule
+      RuleSetName: !Ref CognitoReceiptRuleSet
+      Rule:
+        Name: cognito-forwarding
+        Enabled: true
+        Recipients:
+          - !Ref DomainName
+        Actions:
+          - SNSAction:
+              TopicArn: !Ref CognitoForwardingTopic
+  # Activates Cognito receipt ruleset
+  CognitoReceiptRuleSetActive:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: CognitoReceiptRule
+    Properties:
+      ServiceToken: !Sub ${SesActiveRuleSetProvisioner.Alias}
+      RuleSetName: !Ref CognitoReceiptRuleSet
+  # SNS topic and subscription for forwarding rule
+  CognitoForwardingTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${Prefix}-cognito-forwarding
+  CognitoForwardingTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sns:Publish
+            Resource: !Ref CognitoForwardingTopic
+            Principal:
+              Service: ses.amazonaws.com
+      Topics:
+        - !Ref CognitoForwardingTopic
+  CognitoForwardingTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref ForwardingEmail
+      Protocol: email-json
+      TopicArn: !Ref CognitoForwardingTopic
+  # SNS topic and subscription for verification
+  CognitoVerificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${Prefix}-cognito-verification
+  CognitoVerificationTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sns:Publish
+            Resource: !Ref CognitoVerificationTopic
+            Principal:
+              Service: ses.amazonaws.com
+      Topics:
+        - !Ref CognitoVerificationTopic
+  # SES Domain and Email Identities
+  DomainIdentity:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !Sub ${SesIdentityProvisioner.Alias}
+      Identity: !Ref DomainName
+  EmailIdentity:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - MailExchangerRecord
+      - CognitoReceiptRuleSetActive
+    Properties:
+      ServiceToken: !Sub ${SesIdentityProvisioner.Alias}
+      Identity: !Ref FromEmail
+      PolicyName: Cognito
+      PolicyDocument:
+        Version: '2008-10-17'
+        Statement:
+          - Sid: Cognito
+            Effect: Allow
+            Principal:
+              Service: cognito-idp.amazonaws.com
+            Action:
+              - ses:SendEmail
+              - ses:SendRawEmail
+            Resource: !Sub arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${FromEmail}
+  # SES DNS records
+  MailExchangerRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Comment: !Sub MX Record for SES (${DomainIdentity})
+      HostedZoneName: !Sub ${DomainName}.
+      Name: !Ref DomainName
+      Type: MX
+      TTL: 300
+      ResourceRecords:
+        - !Sub 10 inbound-smtp.${AWS::Region}.amazonaws.com
+  VerificationRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Comment: !Sub Verification Record for SES Verification (${DomainIdentity})
+      HostedZoneName: !Sub ${DomainName}.
+      Name: !Sub _amazonses.${DomainName}
+      Type: TXT
+      TTL: 300
+      ResourceRecords:
+        - !Sub '"${DomainIdentity.VerificationToken}"'
+  DkimRecord0:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Comment: !Sub DKIM Record 0 for SES Verification (${DomainIdentity})
+      HostedZoneName: !Sub ${DomainName}.
+      Name:
+        Fn::Sub:
+          - ${DkimToken}._domainkey.${DomainName}
+          - DkimToken: !Select [ 0, !GetAtt DomainIdentity.DkimTokens ]
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - Fn::Sub:
+            - ${DkimToken}.dkim.amazonses.com
+            - DkimToken: !Select [ 0, !GetAtt DomainIdentity.DkimTokens ]
+  DkimRecord1:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Comment: !Sub DKIM Record 1 for SES Verification (${DomainIdentity})
+      HostedZoneName: !Sub ${DomainName}.
+      Name:
+        Fn::Sub:
+          - ${DkimToken}._domainkey.${DomainName}
+          - DkimToken: !Select [ 1, !GetAtt DomainIdentity.DkimTokens ]
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - Fn::Sub:
+            - ${DkimToken}.dkim.amazonses.com
+            - DkimToken: !Select [ 1, !GetAtt DomainIdentity.DkimTokens ]
+  DkimRecord2:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Comment: !Sub DKIM Record 2 for SES Verification (${DomainIdentity})
+      HostedZoneName: !Sub ${DomainName}.
+      Name:
+        Fn::Sub:
+          - ${DkimToken}._domainkey.${DomainName}
+          - DkimToken: !Select [ 2, !GetAtt DomainIdentity.DkimTokens ]
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - Fn::Sub:
+            - ${DkimToken}.dkim.amazonses.com
+            - DkimToken: !Select [ 2, !GetAtt DomainIdentity.DkimTokens ]
+  # Cognito verification function
+  CognitoVerificationFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: CognitoVerificationFunctionLogGroup
+    Properties:
+      FunctionName: !Sub ${Prefix}-cognito-verification
+      Description: !Sub ${Prefix} Cognito Email Verification
+      Handler: app.ses.verification_handler
+      CodeUri: src/
+      Policies:
+        - AWSXrayWriteOnlyAccess
+      Events:
+        VerificationEvent:
+          Type: SNS
+          Properties:
+            Topic: !Ref CognitoVerificationTopic
+  CognitoVerificationFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Prefix}-cognito-verification
+      RetentionInDays: !Ref LogRetention
+  # SES Active ruleset provisioner
   SesActiveRuleSetProvisioner:
     Type: AWS::Serverless::Function
     DependsOn: SesActiveRuleSetProvisionerLogGroup
     Properties:
-      FunctionName: !Sub ${AWS::StackName}-ses-active-rule-set
-      Description: !Sub ${AWS::StackName} SES Active Rule Set Provisioner
-      Handler: app.ses.ruleset_handler
+      FunctionName: !Sub  ${Prefix}-ses-active-rule-set
+      Description: !Sub ${Prefix} SES Active Rule Set Provisioner
+      Handler: app.ses.rule_set_handler
       CodeUri: src/
       Policies:
-        - AWSXrayWriteOnlyAccess
-        - Version: '2012-10-17'
-          Statement:
-            - Sid: SES
-              Effect: Allow
-              Action:
-              - ses:SetActiveReceiptRuleSet
-              Resource: '*'
+      - AWSXrayWriteOnlyAccess
+      - Version: '2012-10-17'
+        Statement:
+        - Sid: SES
+          Effect: Allow
+          Action:
+          - ses:SetActiveReceiptRuleSet
+          Resource: '*'
   SesActiveRuleSetProvisionerLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Delete
     Properties:
-      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-ses-active-rule-set
+      LogGroupName: !Sub /aws/lambda/${Prefix}-ses-active-rule-set
       RetentionInDays: !Ref LogRetention
-  # Identity provisioner function
   SesIdentityProvisioner:
     Type: AWS::Serverless::Function
     DependsOn: SesIdentityProvisionerLogGroup
     Properties:
-      FunctionName: !Sub ${AWS::StackName}-ses-identity
-      Description: !Sub ${AWS::StackName} SES Identity Provisioner
+      FunctionName: !Sub ${Prefix}-ses-identity
+      Description: !Sub ${Prefix} SES Identity Provisioner
       Handler: app.ses.identity_handler
       CodeUri: src/
       Policies:
-        - AWSXrayWriteOnlyAccess
-        - Version: '2012-10-17'
-          Statement:
-            - Sid: SES
-              Effect: Allow
-              Action:
-              - ses:CreateEmailIdentity
-              - ses:CreateEmailIdentityPolicy
-              - ses:DeleteEmailIdentity
-              - ses:DeleteEmailIdentityPolicy
-              - ses:GetEmailIdentity
-              - ses:GetEmailIdentityPolicies
-              - ses:GetIdentityVerificationAttributes
-              - ses:ListEmailIdentities
-              - ses:UpdateEmailIdentityPolicy
-              - ses:VerifyEmailIdentity
-              Resource: '*'
+      - AWSXrayWriteOnlyAccess
+      - Version: '2012-10-17'
+        Statement:
+        - Sid: SES
+          Effect: Allow
+          Action:
+          - ses:CreateEmailIdentity
+          - ses:CreateEmailIdentityPolicy
+          - ses:DeleteEmailIdentity
+          - ses:DeleteEmailIdentityPolicy
+          - ses:GetEmailIdentity
+          - ses:GetEmailIdentityPolicies
+          - ses:GetIdentityVerificationAttributes
+          - ses:ListEmailIdentities
+          - ses:UpdateEmailIdentityPolicy
+          - ses:VerifyEmailIdentity
+          Resource: '*'
   SesIdentityProvisionerLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Delete
     Properties:
-      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-ses-identity
+      LogGroupName: !Sub /aws/lambda/${Prefix}-ses-identity
       RetentionInDays: !Ref LogRetention
-
 Outputs:
   SesIdentityProvisioner:
     Description: SES Identity Provisioner Alias

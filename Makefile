@@ -1,6 +1,6 @@
 # Project settings
 -include .env
-PROJECT_NAME = ses-custom-resources
+PROJECT_NAME = ses-cognito-verification
 AWS_PROFILE_PREFIX ?= learning
 DEV_ARTIFACTS_BUCKET ?=learning-sandbox-us-west-2-code-artifacts
 ARTIFACTS_BUCKET ?= learning-sandbox-us-west-2-code-artifacts
@@ -93,6 +93,54 @@ kernel: install
 
 jupyter:
 	jupyter lab
+
+publish/%:
+	config=$$(yq e '. | select(.Template // "template.yaml" == "template.yaml")' config/$*.yaml)
+	region=$$(yq e '.Region // "us-west-2"' - <<< "$$config")
+	template=build/template.yaml
+	$(INFO) "Publishing $$template"
+	account=$$(aws sts get-caller-identity --profile learning-$* --query Account --output text)
+	application_id=arn:aws:serverlessrepo:$$region:$$account:applications/$(PROJECT_NAME)
+	$(INFO) "$$application_id"
+	if version=$$(aws serverlessrepo get-application --profile learning-$* --application-id $$application_id --query Version.SemanticVersion --output text 2>/dev/null)
+	then
+		new_version=$$(yq e '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' $$template)
+		$(INFO) "Current version: $$version"
+		if [ $$version != $$new_version ]
+		then
+			$(INFO) "Publishing new version: $$new_version"
+			aws serverlessrepo create-application-version \
+				--application-id $$application_id \
+				--semantic-version $$(yq e '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' $$template) \
+				--template-body file://$$template \
+				--profile learning-$* | jq
+		else
+			$(INFO) "Skipping as current version is up to date"
+		fi
+	else
+		$(INFO) "Creating new application..."
+		author=$$(yq e '.Metadata."AWS::ServerlessRepo::Application".Author' $$template)
+		description=$$(yq e '.Metadata."AWS::ServerlessRepo::Application".Description' $$template)
+		semantic_version=$$(yq e '.Metadata."AWS::ServerlessRepo::Application".SemanticVersion' $$template)
+		home_page_url=$$(yq e '.Metadata."AWS::ServerlessRepo::Application".HomePageUrl' $$template)
+		source_code_url=$$(yq e '.Metadata."AWS::ServerlessRepo::Application".SourceCodeUrl' $$template)
+		license_url=$$(yq e '.Metadata."AWS::ServerlessRepo::Application".LicenseUrl' $$template)
+		aws serverlessrepo create-application \
+			--name "$(PROJECT_NAME)" --template-body file://$$template \
+			--author "$$author" \
+			--description "$$description" \
+			--semantic-version "$$semantic_version" \
+			--home-page-url "$$home_page_url" \
+			--source-code-url "$$source_code_url" \
+			--license-url "$$license_url" \
+			--spdx-license-id MIT \
+			--profile learning-$* | jq
+	fi
+	aws serverlessrepo put-application-policy \
+		--region $$region \
+		--application-id $$application_id	 \
+		--statements Principals=*,Actions=Deploy \
+		--profile learning-$*
 
 # General settings
 BRANCH_NAME != git rev-parse --abbrev-ref HEAD

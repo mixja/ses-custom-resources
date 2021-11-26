@@ -1,12 +1,10 @@
 ---
-# Region: us-east-1
-# Template: path-to-template.yaml
-# Parameters:
-#   SomeInputParameter: some value
+Parameters:
+  Prefix: ses-custom-resources
 Tags:
-  Owner: Learning Technology
+  Owner: LearningTech
   Product: ses-custom-resources
   Severity: High
   Environment: sandbox
-  Contact: justin.menga@learning.com
+  Contact: justin.menga@learningtech.dev
   DeletionPolicy: Retain
